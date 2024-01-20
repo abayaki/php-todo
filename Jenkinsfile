@@ -12,7 +12,7 @@ pipeline {
 
         stage('Checkout SCM') {
             steps {
-                git branch: 'main', url: 'https://github.com/darey-devops/php-todo.git'
+                git branch: 'main', url: 'https://github.com/abayaki/php-todo.git'
             }
         }
 
@@ -89,14 +89,11 @@ pipeline {
 
         stage('SonarQube Quality Gate') {
             steps {
-                timeout(time: 1, unit: 'HOURS') {
+                timeout(time: 1, unit: 'HOURS', abortPipeline: true) {
                     waitForQualityGate()
                 }
             }
         }
-
-        // Additional stages...
-    }
 
     post {
         always {
