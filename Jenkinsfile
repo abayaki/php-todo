@@ -16,12 +16,6 @@ pipeline {
             }
         }
 
-        stage('Execute Unit Tests') {
-            steps {
-                sh './vendor/bin/phpunit'
-            }
-        }
-
         stage('Prepare Dependencies') {
             steps {
                 sh 'mv .env.sample .env'
@@ -32,12 +26,35 @@ pipeline {
             }
         }
 
+        stage('Execute Unit Tests') {
+            steps {
+                sh './vendor/bin/phpunit'
+            }
+        }
+
         stage('Code Analysis') {
             steps {
                 sh 'phploc app/ --log-csv build/logs/phploc.csv'
             }
         }
-        
+
+        stage('SonarQube Quality Gate') {
+            when {
+                branch pattern: "^develop.*|^hotfix.*|^release.*|^main.*", comparator: "REGEXP"
+            }
+            environment {
+                scannerHome = tool 'SonarQubeScanner'
+            }
+            steps {
+                withSonarQubeEnv('sonarqube') {
+                    sh "${scannerHome}/bin/sonar-scanner -Dproject.settings=sonar-project.properties"
+                }
+                timeout(time: 1, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
         stage('Package Artifact') {
             steps {
                 sh 'zip -qr php-todo.zip ${WORKSPACE}/*'
@@ -67,37 +84,6 @@ pipeline {
             steps {
                 build job: 'ansible-project/main', parameters: [[$class: 'StringParameterValue', name: 'env', value: 'dev']], propagate: false, wait: true
             }
-        }
-
-        stage('SonarQube Analysis') {
-            environment {
-                scannerHome = tool 'SonarQubeScanner'
-            }
-            steps {
-                script {
-                    withSonarQubeEnv('sonarqube') {
-                        def scannerCmd = "${scannerHome}/bin/sonar-scanner"
-                        if (isUnix()) {
-                            sh scannerCmd
-                        } else {
-                            bat scannerCmd
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('SonarQube Quality Gate') {
-            steps {
-                timeout(time: 1, unit: 'HOURS', abortPipeline: true) {
-                    waitForQualityGate()
-                }
-            }
-        }
-
-    post {
-        always {
-            // Clean up, notification, or other post-build tasks
         }
     }
 }
