@@ -18,11 +18,16 @@ pipeline {
 
         stage('Prepare Dependencies') {
             steps {
+                script {
+                    sh 'echo "extension=mbstring.so" >> /etc/php/7.4/cli/php.ini'
+
                 sh 'mv .env.sample .env'
                 sh 'composer install'
                 sh 'php artisan migrate'
                 sh 'php artisan db:seed'
                 sh 'php artisan key:generate'
+                
+                }
             }
         }
 
