@@ -6,7 +6,7 @@
     "type": "project",
     "require": {
         "php": "^7.3|^8.0",
-        "laravel/framework": "5.2.*"
+        "laravel/framework": "^8.0"
     },
     "require-dev": {
         "fzaninotto/faker": "~1.4",
@@ -47,6 +47,9 @@
         ]
     },
     "config": {
-        "preferred-install": "dist"
+        "preferred-install": "dist",
+        "allow-plugins": {
+            "kylekatarnls/update-helper": true
+        }
     }
 }
