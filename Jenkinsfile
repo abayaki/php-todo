@@ -19,7 +19,7 @@ pipeline {
         stage('Prepare Dependencies') {
             steps {
                 script {
-                    sh 'echo "extension=mbstring.so" >> $HOME/.phpenv/versions/7.4.*/etc/php.ini'
+                    sh 'echo "extension=mbstring.so" > $HOME/.phpenv/versions/7.4.*/etc/conf.d/mbstring.ini'
 
                 sh 'mv .env.sample .env'
                 sh 'composer install'
