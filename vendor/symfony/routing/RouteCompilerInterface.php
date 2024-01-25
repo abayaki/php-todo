@@ -21,9 +21,7 @@ interface RouteCompilerInterface
     /**
      * Compiles the current route instance.
      *
-     * @param Route $route A Route instance
-     *
-     * @return CompiledRoute A CompiledRoute instance
+     * @return CompiledRoute
      *
      * @throws \LogicException If the Route cannot be compiled because the
      *                         path or host pattern is invalid

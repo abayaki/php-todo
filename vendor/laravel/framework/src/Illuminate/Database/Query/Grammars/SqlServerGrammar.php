@@ -3,17 +3,19 @@
 namespace Illuminate\Database\Query\Grammars;
 
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 
 class SqlServerGrammar extends Grammar
 {
     /**
      * All of the available clause operators.
      *
-     * @var array
+     * @var string[]
      */
     protected $operators = [
         '=', '<', '>', '<=', '>=', '!<', '!>', '<>', '!=',
-        'like', 'not like', 'between', 'ilike',
+        'like', 'not like', 'ilike',
         '&', '&=', '|', '|=', '^', '^=',
     ];
 
@@ -25,7 +27,9 @@ class SqlServerGrammar extends Grammar
      */
     public function compileSelect(Builder $query)
     {
-        $original = $query->columns;
+        if (! $query->offset) {
+            return parent::compileSelect($query);
+        }
 
         if (is_null($query->columns)) {
             $query->columns = ['*'];
@@ -33,18 +37,16 @@ class SqlServerGrammar extends Grammar
 
         $components = $this->compileComponents($query);
 
+        if (! empty($components['orders'])) {
+            return parent::compileSelect($query)." offset {$query->offset} rows fetch next {$query->limit} rows only";
+        }
+
         // If an offset is present on the query, we will need to wrap the query in
         // a big "ANSI" offset syntax block. This is very nasty compared to the
         // other database systems but is necessary for implementing features.
-        if ($query->offset > 0) {
-            return $this->compileAnsiOffset($query, $components);
-        }
-
-        $sql = $this->concatenate($components);
-
-        $query->columns = $original;
-
-        return $sql;
+        return $this->compileAnsiOffset(
+            $query, $components
+        );
     }
 
     /**
@@ -65,8 +67,8 @@ class SqlServerGrammar extends Grammar
         // If there is a limit on the query, but not an offset, we will add the top
         // clause to the query, which serves as a "limit" type clause within the
         // SQL Server system similar to the limit keywords available in MySQL.
-        if ($query->limit > 0 && $query->offset <= 0) {
-            $select .= 'top '.$query->limit.' ';
+        if (is_numeric($query->limit) && $query->limit > 0 && $query->offset <= 0) {
+            $select .= 'top '.((int) $query->limit).' ';
         }
 
         return $select.$this->columnize($columns);
@@ -95,6 +97,120 @@ class SqlServerGrammar extends Grammar
     }
 
     /**
+     * {@inheritdoc}
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $where
+     * @return string
+     */
+    protected function whereBitwise(Builder $query, $where)
+    {
+        $value = $this->parameter($where['value']);
+
+        $operator = str_replace('?', '??', $where['operator']);
+
+        return '('.$this->wrap($where['column']).' '.$operator.' '.$value.') != 0';
+    }
+
+    /**
+     * Compile a "where date" clause.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $where
+     * @return string
+     */
+    protected function whereDate(Builder $query, $where)
+    {
+        $value = $this->parameter($where['value']);
+
+        return 'cast('.$this->wrap($where['column']).' as date) '.$where['operator'].' '.$value;
+    }
+
+    /**
+     * Compile a "where time" clause.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $where
+     * @return string
+     */
+    protected function whereTime(Builder $query, $where)
+    {
+        $value = $this->parameter($where['value']);
+
+        return 'cast('.$this->wrap($where['column']).' as time) '.$where['operator'].' '.$value;
+    }
+
+    /**
+     * Compile a "JSON contains" statement into SQL.
+     *
+     * @param  string  $column
+     * @param  string  $value
+     * @return string
+     */
+    protected function compileJsonContains($column, $value)
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return $value.' in (select [value] from openjson('.$field.$path.'))';
+    }
+
+    /**
+     * Prepare the binding for a "JSON contains" statement.
+     *
+     * @param  mixed  $binding
+     * @return string
+     */
+    public function prepareBindingForJsonContains($binding)
+    {
+        return is_bool($binding) ? json_encode($binding) : $binding;
+    }
+
+    /**
+     * Compile a "JSON length" statement into SQL.
+     *
+     * @param  string  $column
+     * @param  string  $operator
+     * @param  string  $value
+     * @return string
+     */
+    protected function compileJsonLength($column, $operator, $value)
+    {
+        [$field, $path] = $this->wrapJsonFieldAndPath($column);
+
+        return '(select count(*) from openjson('.$field.$path.')) '.$operator.' '.$value;
+    }
+
+    /**
+     * {@inheritdoc}
+     *
+     * @param  array  $having
+     * @return string
+     */
+    protected function compileHaving(array $having)
+    {
+        if ($having['type'] === 'Bitwise') {
+            return $this->compileHavingBitwise($having);
+        }
+
+        return parent::compileHaving($having);
+    }
+
+    /**
+     * Compile a having clause involving a bitwise operator.
+     *
+     * @param  array  $having
+     * @return string
+     */
+    protected function compileHavingBitwise($having)
+    {
+        $column = $this->wrap($having['column']);
+
+        $parameter = $this->parameter($having['value']);
+
+        return $having['boolean'].' ('.$column.' '.$having['operator'].' '.$parameter.') != 0';
+    }
+
+    /**
      * Create a full ANSI offset clause for the query.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
@@ -106,30 +222,27 @@ class SqlServerGrammar extends Grammar
         // An ORDER BY clause is required to make this offset query work, so if one does
         // not exist we'll just create a dummy clause to trick the database and so it
         // does not complain about the queries for not having an "order by" clause.
-        if (! isset($components['orders'])) {
+        if (empty($components['orders'])) {
             $components['orders'] = 'order by (select 0)';
         }
 
         // We need to add the row number to the query so we can compare it to the offset
         // and limit values given for the statements. So we will add an expression to
         // the "select" that will give back the row numbers on each of the records.
-        $orderings = $components['orders'];
-
-        $components['columns'] .= $this->compileOver($orderings);
+        $components['columns'] .= $this->compileOver($components['orders']);
 
         unset($components['orders']);
+
+        if ($this->queryOrderContainsSubquery($query)) {
+            $query->bindings = $this->sortBindingsForSubqueryOrderBy($query);
+        }
 
         // Next we need to calculate the constraints that should be placed on the query
         // to get the right offset and limit from our query but if there is no limit
         // set we will just handle the offset only since that is all that matters.
-        $constraint = $this->compileRowConstraint($query);
-
         $sql = $this->concatenate($components);
 
-        // We are now ready to build the final SQL query so we'll create a common table
-        // expression from the query and get the records with row numbers within our
-        // given limit and offset value that we just put on as a query constraint.
-        return $this->compileTableExpression($sql, $constraint);
+        return $this->compileTableExpression($sql, $query);
     }
 
     /**
@@ -144,6 +257,50 @@ class SqlServerGrammar extends Grammar
     }
 
     /**
+     * Determine if the query's order by clauses contain a subquery.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @return bool
+     */
+    protected function queryOrderContainsSubquery($query)
+    {
+        if (! is_array($query->orders)) {
+            return false;
+        }
+
+        return Arr::first($query->orders, function ($value) {
+            return $this->isExpression($value['column'] ?? null);
+        }, false) !== false;
+    }
+
+    /**
+     * Move the order bindings to be after the "select" statement to account for an order by subquery.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @return array
+     */
+    protected function sortBindingsForSubqueryOrderBy($query)
+    {
+        return Arr::sort($query->bindings, function ($bindings, $key) {
+            return array_search($key, ['select', 'order', 'from', 'join', 'where', 'groupBy', 'having', 'union', 'unionOrder']);
+        });
+    }
+
+    /**
+     * Compile a common table expression for a query.
+     *
+     * @param  string  $sql
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @return string
+     */
+    protected function compileTableExpression($sql, $query)
+    {
+        $constraint = $this->compileRowConstraint($query);
+
+        return "select * from ({$sql}) as temp_table where row_num {$constraint} order by row_num";
+    }
+
+    /**
      * Compile the limit / offset row constraint for a query.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
@@ -151,10 +308,10 @@ class SqlServerGrammar extends Grammar
      */
     protected function compileRowConstraint($query)
     {
-        $start = $query->offset + 1;
+        $start = (int) $query->offset + 1;
 
         if ($query->limit > 0) {
-            $finish = $query->offset + $query->limit;
+            $finish = (int) $query->offset + (int) $query->limit;
 
             return "between {$start} and {$finish}";
         }
@@ -163,15 +320,20 @@ class SqlServerGrammar extends Grammar
     }
 
     /**
-     * Compile a common table expression for a query.
+     * Compile a delete statement without joins into SQL.
      *
-     * @param  string  $sql
-     * @param  string  $constraint
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  string  $table
+     * @param  string  $where
      * @return string
      */
-    protected function compileTableExpression($sql, $constraint)
+    protected function compileDeleteWithoutJoins(Builder $query, $table, $where)
     {
-        return "select * from ({$sql}) as temp_table where row_num {$constraint}";
+        $sql = parent::compileDeleteWithoutJoins($query, $table, $where);
+
+        return ! is_null($query->limit) && $query->limit > 0 && $query->offset <= 0
+                        ? Str::replaceFirst('delete', 'delete top ('.$query->limit.')', $sql)
+                        : $sql;
     }
 
     /**
@@ -210,20 +372,32 @@ class SqlServerGrammar extends Grammar
     }
 
     /**
-     * Compile a truncate table statement into SQL.
+     * Compile the lock into SQL.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
-     * @return array
+     * @param  bool|string  $value
+     * @return string
      */
-    public function compileTruncate(Builder $query)
+    protected function compileLock(Builder $query, $value)
     {
-        return ['truncate table '.$this->wrapTable($query->from) => []];
+        return '';
+    }
+
+    /**
+     * Wrap a union subquery in parentheses.
+     *
+     * @param  string  $sql
+     * @return string
+     */
+    protected function wrapUnion($sql)
+    {
+        return 'select * from ('.$sql.') as '.$this->wrapTable('temp_table');
     }
 
     /**
      * Compile an exists statement into SQL.
      *
-     * @param \Illuminate\Database\Query\Builder $query
+     * @param  \Illuminate\Database\Query\Builder  $query
      * @return string
      */
     public function compileExists(Builder $query)
@@ -236,27 +410,101 @@ class SqlServerGrammar extends Grammar
     }
 
     /**
-     * Compile a "where date" clause.
+     * Compile an update statement with joins into SQL.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
-     * @param  array  $where
+     * @param  string  $table
+     * @param  string  $columns
+     * @param  string  $where
      * @return string
      */
-    protected function whereDate(Builder $query, $where)
+    protected function compileUpdateWithJoins(Builder $query, $table, $columns, $where)
     {
-        $value = $this->parameter($where['value']);
+        $alias = last(explode(' as ', $table));
 
-        return 'cast('.$this->wrap($where['column']).' as date) '.$where['operator'].' '.$value;
+        $joins = $this->compileJoins($query, $query->joins);
+
+        return "update {$alias} set {$columns} from {$table} {$joins} {$where}";
     }
 
     /**
-     * Determine if the grammar supports savepoints.
+     * Compile an "upsert" statement into SQL.
      *
-     * @return bool
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $values
+     * @param  array  $uniqueBy
+     * @param  array  $update
+     * @return string
      */
-    public function supportsSavepoints()
+    public function compileUpsert(Builder $query, array $values, array $uniqueBy, array $update)
     {
-        return false;
+        $columns = $this->columnize(array_keys(reset($values)));
+
+        $sql = 'merge '.$this->wrapTable($query->from).' ';
+
+        $parameters = collect($values)->map(function ($record) {
+            return '('.$this->parameterize($record).')';
+        })->implode(', ');
+
+        $sql .= 'using (values '.$parameters.') '.$this->wrapTable('laravel_source').' ('.$columns.') ';
+
+        $on = collect($uniqueBy)->map(function ($column) use ($query) {
+            return $this->wrap('laravel_source.'.$column).' = '.$this->wrap($query->from.'.'.$column);
+        })->implode(' and ');
+
+        $sql .= 'on '.$on.' ';
+
+        if ($update) {
+            $update = collect($update)->map(function ($value, $key) {
+                return is_numeric($key)
+                    ? $this->wrap($value).' = '.$this->wrap('laravel_source.'.$value)
+                    : $this->wrap($key).' = '.$this->parameter($value);
+            })->implode(', ');
+
+            $sql .= 'when matched then update set '.$update.' ';
+        }
+
+        $sql .= 'when not matched then insert ('.$columns.') values ('.$columns.');';
+
+        return $sql;
+    }
+
+    /**
+     * Prepare the bindings for an update statement.
+     *
+     * @param  array  $bindings
+     * @param  array  $values
+     * @return array
+     */
+    public function prepareBindingsForUpdate(array $bindings, array $values)
+    {
+        $cleanBindings = Arr::except($bindings, 'select');
+
+        return array_values(
+            array_merge($values, Arr::flatten($cleanBindings))
+        );
+    }
+
+    /**
+     * Compile the SQL statement to define a savepoint.
+     *
+     * @param  string  $name
+     * @return string
+     */
+    public function compileSavepoint($name)
+    {
+        return 'SAVE TRANSACTION '.$name;
+    }
+
+    /**
+     * Compile the SQL statement to execute a savepoint rollback.
+     *
+     * @param  string  $name
+     * @return string
+     */
+    public function compileSavepointRollBack($name)
+    {
+        return 'ROLLBACK TRANSACTION '.$name;
     }
 
     /**
@@ -266,7 +514,7 @@ class SqlServerGrammar extends Grammar
      */
     public function getDateFormat()
     {
-        return 'Y-m-d H:i:s.000';
+        return 'Y-m-d H:i:s.v';
     }
 
     /**
@@ -277,60 +525,31 @@ class SqlServerGrammar extends Grammar
      */
     protected function wrapValue($value)
     {
-        if ($value === '*') {
-            return $value;
-        }
-
-        return '['.str_replace(']', ']]', $value).']';
+        return $value === '*' ? $value : '['.str_replace(']', ']]', $value).']';
     }
 
     /**
-     * Compile an update statement into SQL.
+     * Wrap the given JSON selector.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
-     * @param  array  $values
+     * @param  string  $value
      * @return string
      */
-    public function compileUpdate(Builder $query, $values)
+    protected function wrapJsonSelector($value)
     {
-        $table = $alias = $this->wrapTable($query->from);
+        [$field, $path] = $this->wrapJsonFieldAndPath($value);
 
-        if (strpos(strtolower($table), '] as [') !== false) {
-            $segments = explode('] as [', $table);
+        return 'json_value('.$field.$path.')';
+    }
 
-            $alias = '['.$segments[1];
-        }
-
-        // Each one of the columns in the update statements needs to be wrapped in the
-        // keyword identifiers, also a place-holder needs to be created for each of
-        // the values in the list of bindings so we can make the sets statements.
-        $columns = [];
-
-        foreach ($values as $key => $value) {
-            $columns[] = $this->wrap($key).' = '.$this->parameter($value);
-        }
-
-        $columns = implode(', ', $columns);
-
-        // If the query has any "join" clauses, we will setup the joins on the builder
-        // and compile them so we can attach them to this update, as update queries
-        // can get join statements to attach to other tables when they're needed.
-        if (isset($query->joins)) {
-            $joins = ' '.$this->compileJoins($query, $query->joins);
-        } else {
-            $joins = '';
-        }
-
-        // Of course, update queries may also be constrained by where clauses so we'll
-        // need to compile the where clauses and attach it to the query so only the
-        // intended records are updated by the SQL statements we generate to run.
-        $where = $this->compileWheres($query);
-
-        if (! empty($joins)) {
-            return trim("update {$alias} set {$columns} from {$table}{$joins} {$where}");
-        }
-
-        return trim("update {$table}{$joins} set $columns $where");
+    /**
+     * Wrap the given JSON boolean value.
+     *
+     * @param  string  $value
+     * @return string
+     */
+    protected function wrapJsonBooleanValue($value)
+    {
+        return "'".$value."'";
     }
 
     /**
@@ -341,7 +560,11 @@ class SqlServerGrammar extends Grammar
      */
     public function wrapTable($table)
     {
-        return $this->wrapTableValuedFunction(parent::wrapTable($table));
+        if (! $this->isExpression($table)) {
+            return $this->wrapTableValuedFunction(parent::wrapTable($table));
+        }
+
+        return $this->getValue($table);
     }
 
     /**

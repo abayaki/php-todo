@@ -2,10 +2,10 @@
 
 namespace Illuminate\Session;
 
-use Carbon\Carbon;
+use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Carbon;
 use SessionHandlerInterface;
 use Symfony\Component\Finder\Finder;
-use Illuminate\Filesystem\Filesystem;
 
 class FileSessionHandler implements SessionHandlerInterface
 {
@@ -47,7 +47,10 @@ class FileSessionHandler implements SessionHandlerInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @return bool
      */
+    #[\ReturnTypeWillChange]
     public function open($savePath, $sessionName)
     {
         return true;
@@ -55,7 +58,10 @@ class FileSessionHandler implements SessionHandlerInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @return bool
      */
+    #[\ReturnTypeWillChange]
     public function close()
     {
         return true;
@@ -63,12 +69,15 @@ class FileSessionHandler implements SessionHandlerInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @return string|false
      */
+    #[\ReturnTypeWillChange]
     public function read($sessionId)
     {
-        if ($this->files->exists($path = $this->path.'/'.$sessionId)) {
-            if (filemtime($path) >= Carbon::now()->subMinutes($this->minutes)->getTimestamp()) {
-                return $this->files->get($path);
+        if ($this->files->isFile($path = $this->path.'/'.$sessionId)) {
+            if ($this->files->lastModified($path) >= Carbon::now()->subMinutes($this->minutes)->getTimestamp()) {
+                return $this->files->sharedGet($path);
             }
         }
 
@@ -77,23 +86,36 @@ class FileSessionHandler implements SessionHandlerInterface
 
     /**
      * {@inheritdoc}
+     *
+     * @return bool
      */
+    #[\ReturnTypeWillChange]
     public function write($sessionId, $data)
     {
         $this->files->put($this->path.'/'.$sessionId, $data, true);
+
+        return true;
     }
 
     /**
      * {@inheritdoc}
+     *
+     * @return bool
      */
+    #[\ReturnTypeWillChange]
     public function destroy($sessionId)
     {
         $this->files->delete($this->path.'/'.$sessionId);
+
+        return true;
     }
 
     /**
      * {@inheritdoc}
+     *
+     * @return int|false
      */
+    #[\ReturnTypeWillChange]
     public function gc($lifetime)
     {
         $files = Finder::create()

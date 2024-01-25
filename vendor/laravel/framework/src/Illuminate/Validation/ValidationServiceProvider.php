@@ -2,17 +2,13 @@
 
 namespace Illuminate\Validation;
 
+use Illuminate\Contracts\Support\DeferrableProvider;
+use Illuminate\Contracts\Validation\UncompromisedVerifier;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
 
-class ValidationServiceProvider extends ServiceProvider
+class ValidationServiceProvider extends ServiceProvider implements DeferrableProvider
 {
-    /**
-     * Indicates if loading of the provider is deferred.
-     *
-     * @var bool
-     */
-    protected $defer = true;
-
     /**
      * Register the service provider.
      *
@@ -21,7 +17,7 @@ class ValidationServiceProvider extends ServiceProvider
     public function register()
     {
         $this->registerPresenceVerifier();
-
+        $this->registerUncompromisedVerifier();
         $this->registerValidationFactory();
     }
 
@@ -35,10 +31,10 @@ class ValidationServiceProvider extends ServiceProvider
         $this->app->singleton('validator', function ($app) {
             $validator = new Factory($app['translator'], $app);
 
-            // The validation presence verifier is responsible for determining the existence
-            // of values in a given data collection, typically a relational database or
-            // other persistent data stores. And it is used to check for uniqueness.
-            if (isset($app['validation.presence'])) {
+            // The validation presence verifier is responsible for determining the existence of
+            // values in a given data collection which is typically a relational database or
+            // other persistent data stores. It is used to check for "uniqueness" as well.
+            if (isset($app['db'], $app['validation.presence'])) {
                 $validator->setPresenceVerifier($app['validation.presence']);
             }
 
@@ -55,6 +51,18 @@ class ValidationServiceProvider extends ServiceProvider
     {
         $this->app->singleton('validation.presence', function ($app) {
             return new DatabasePresenceVerifier($app['db']);
+        });
+    }
+
+    /**
+     * Register the uncompromised password verifier.
+     *
+     * @return void
+     */
+    protected function registerUncompromisedVerifier()
+    {
+        $this->app->singleton(UncompromisedVerifier::class, function ($app) {
+            return new NotPwnedVerifier($app[HttpFactory::class]);
         });
     }
 

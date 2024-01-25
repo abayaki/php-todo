@@ -2,14 +2,40 @@
 
 namespace Illuminate\Foundation\Providers;
 
-use Illuminate\Routing\Redirector;
-use Illuminate\Support\ServiceProvider;
-use Illuminate\Foundation\Http\FormRequest;
-use Symfony\Component\HttpFoundation\Request;
-use Illuminate\Contracts\Validation\ValidatesWhenResolved;
+use Illuminate\Http\Request;
+use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\AggregateServiceProvider;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Testing\LoggedExceptionCollection;
+use Illuminate\Testing\ParallelTestingServiceProvider;
+use Illuminate\Validation\ValidationException;
 
-class FoundationServiceProvider extends ServiceProvider
+class FoundationServiceProvider extends AggregateServiceProvider
 {
+    /**
+     * The provider class names.
+     *
+     * @var string[]
+     */
+    protected $providers = [
+        FormRequestServiceProvider::class,
+        ParallelTestingServiceProvider::class,
+    ];
+
+    /**
+     * Boot the service provider.
+     *
+     * @return void
+     */
+    public function boot()
+    {
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__.'/../Exceptions/views' => $this->app->resourcePath('views/errors/'),
+            ], 'laravel-errors');
+        }
+    }
+
     /**
      * Register the service provider.
      *
@@ -17,61 +43,74 @@ class FoundationServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        //
+        parent::register();
+
+        $this->registerRequestValidation();
+        $this->registerRequestSignatureValidation();
+        $this->registerExceptionTracking();
     }
 
     /**
-     * Bootstrap the application services.
+     * Register the "validate" macro on the request.
      *
      * @return void
-     */
-    public function boot()
-    {
-        $this->configureFormRequests();
-    }
-
-    /**
-     * Configure the form request related services.
      *
-     * @return void
+     * @throws \Illuminate\Validation\ValidationException
      */
-    protected function configureFormRequests()
+    public function registerRequestValidation()
     {
-        $this->app->afterResolving(function (ValidatesWhenResolved $resolved) {
-            $resolved->validate();
+        Request::macro('validate', function (array $rules, ...$params) {
+            return validator()->validate($this->all(), $rules, ...$params);
         });
 
-        $this->app->resolving(function (FormRequest $request, $app) {
-            $this->initializeRequest($request, $app['request']);
+        Request::macro('validateWithBag', function (string $errorBag, array $rules, ...$params) {
+            try {
+                return $this->validate($rules, ...$params);
+            } catch (ValidationException $e) {
+                $e->errorBag = $errorBag;
 
-            $request->setContainer($app)->setRedirector($app->make(Redirector::class));
+                throw $e;
+            }
         });
     }
 
     /**
-     * Initialize the form request with data from the given request.
+     * Register the "hasValidSignature" macro on the request.
      *
-     * @param  \Illuminate\Foundation\Http\FormRequest  $form
-     * @param  \Symfony\Component\HttpFoundation\Request  $current
      * @return void
      */
-    protected function initializeRequest(FormRequest $form, Request $current)
+    public function registerRequestSignatureValidation()
     {
-        $files = $current->files->all();
+        Request::macro('hasValidSignature', function ($absolute = true) {
+            return URL::hasValidSignature($this, $absolute);
+        });
 
-        $files = is_array($files) ? array_filter($files) : $files;
+        Request::macro('hasValidRelativeSignature', function () {
+            return URL::hasValidSignature($this, $absolute = false);
+        });
+    }
 
-        $form->initialize(
-            $current->query->all(), $current->request->all(), $current->attributes->all(),
-            $current->cookies->all(), $files, $current->server->all(), $current->getContent()
-        );
-
-        if ($session = $current->getSession()) {
-            $form->setSession($session);
+    /**
+     * Register an event listener to track logged exceptions.
+     *
+     * @return void
+     */
+    protected function registerExceptionTracking()
+    {
+        if (! $this->app->runningUnitTests()) {
+            return;
         }
 
-        $form->setUserResolver($current->getUserResolver());
+        $this->app->instance(
+            LoggedExceptionCollection::class,
+            new LoggedExceptionCollection
+        );
 
-        $form->setRouteResolver($current->getRouteResolver());
+        $this->app->make('events')->listen(MessageLogged::class, function ($event) {
+            if (isset($event->context['exception'])) {
+                $this->app->make(LoggedExceptionCollection::class)
+                        ->push($event->context['exception']);
+            }
+        });
     }
 }

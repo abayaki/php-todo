@@ -2,28 +2,60 @@
 
 namespace Illuminate\Database\Schema\Grammars;
 
-use Illuminate\Support\Fluent;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Fluent;
+use RuntimeException;
 
 class MySqlGrammar extends Grammar
 {
     /**
      * The possible column modifiers.
      *
-     * @var array
+     * @var string[]
      */
     protected $modifiers = [
-        'VirtualAs', 'StoredAs', 'Unsigned', 'Charset', 'Collate', 'Nullable',
-        'Default', 'Increment', 'Comment', 'After', 'First',
+        'Unsigned', 'Charset', 'Collate', 'VirtualAs', 'StoredAs', 'Nullable', 'Invisible',
+        'Srid', 'Default', 'Increment', 'Comment', 'After', 'First',
     ];
 
     /**
      * The possible column serials.
      *
-     * @var array
+     * @var string[]
      */
     protected $serials = ['bigInteger', 'integer', 'mediumInteger', 'smallInteger', 'tinyInteger'];
+
+    /**
+     * Compile a create database command.
+     *
+     * @param  string  $name
+     * @param  \Illuminate\Database\Connection  $connection
+     * @return string
+     */
+    public function compileCreateDatabase($name, $connection)
+    {
+        return sprintf(
+            'create database %s default character set %s default collate %s',
+            $this->wrapValue($name),
+            $this->wrapValue($connection->getConfig('charset')),
+            $this->wrapValue($connection->getConfig('collation')),
+        );
+    }
+
+    /**
+     * Compile a drop database if exists command.
+     *
+     * @param  string  $name
+     * @return string
+     */
+    public function compileDropDatabaseIfExists($name)
+    {
+        return sprintf(
+            'drop database if exists %s',
+            $this->wrapValue($name)
+        );
+    }
 
     /**
      * Compile the query to determine the list of tables.
@@ -32,7 +64,7 @@ class MySqlGrammar extends Grammar
      */
     public function compileTableExists()
     {
-        return 'select * from information_schema.tables where table_schema = ? and table_name = ?';
+        return "select * from information_schema.tables where table_schema = ? and table_name = ? and table_type = 'BASE TABLE'";
     }
 
     /**
@@ -40,9 +72,9 @@ class MySqlGrammar extends Grammar
      *
      * @return string
      */
-    public function compileColumnExists()
+    public function compileColumnListing()
     {
-        return 'select column_name from information_schema.columns where table_schema = ? and table_name = ?';
+        return 'select column_name as `column_name` from information_schema.columns where table_schema = ? and table_name = ?';
     }
 
     /**
@@ -51,28 +83,44 @@ class MySqlGrammar extends Grammar
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
      * @param  \Illuminate\Support\Fluent  $command
      * @param  \Illuminate\Database\Connection  $connection
-     * @return string
+     * @return array
      */
     public function compileCreate(Blueprint $blueprint, Fluent $command, Connection $connection)
     {
-        $columns = implode(', ', $this->getColumns($blueprint));
-
-        $sql = $blueprint->temporary ? 'create temporary' : 'create';
-
-        $sql .= ' table '.$this->wrapTable($blueprint)." ($columns)";
+        $sql = $this->compileCreateTable(
+            $blueprint, $command, $connection
+        );
 
         // Once we have the primary SQL, we can add the encoding option to the SQL for
         // the table.  Then, we can check if a storage engine has been supplied for
         // the table. If so, we will add the engine declaration to the SQL query.
-        $sql = $this->compileCreateEncoding($sql, $connection, $blueprint);
+        $sql = $this->compileCreateEncoding(
+            $sql, $connection, $blueprint
+        );
 
-        if (isset($blueprint->engine)) {
-            $sql .= ' engine = '.$blueprint->engine;
-        } elseif (! is_null($engine = $connection->getConfig('engine'))) {
-            $sql .= ' engine = '.$engine;
-        }
+        // Finally, we will append the engine configuration onto this SQL statement as
+        // the final thing we do before returning this finished SQL. Once this gets
+        // added the query will be ready to execute against the real connections.
+        return array_values(array_filter(array_merge([$this->compileCreateEngine(
+            $sql, $connection, $blueprint
+        )], $this->compileAutoIncrementStartingValues($blueprint))));
+    }
 
-        return $sql;
+    /**
+     * Create the main create table clause.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @param  \Illuminate\Database\Connection  $connection
+     * @return array
+     */
+    protected function compileCreateTable($blueprint, $command, $connection)
+    {
+        return trim(sprintf('%s table %s (%s)',
+            $blueprint->temporary ? 'create temporary' : 'create',
+            $this->wrapTable($blueprint),
+            implode(', ', $this->getColumns($blueprint))
+        ));
     }
 
     /**
@@ -85,16 +133,41 @@ class MySqlGrammar extends Grammar
      */
     protected function compileCreateEncoding($sql, Connection $connection, Blueprint $blueprint)
     {
+        // First we will set the character set if one has been set on either the create
+        // blueprint itself or on the root configuration for the connection that the
+        // table is being created on. We will add these to the create table query.
         if (isset($blueprint->charset)) {
             $sql .= ' default character set '.$blueprint->charset;
         } elseif (! is_null($charset = $connection->getConfig('charset'))) {
             $sql .= ' default character set '.$charset;
         }
 
+        // Next we will add the collation to the create table statement if one has been
+        // added to either this create table blueprint or the configuration for this
+        // connection that the query is targeting. We'll add it to this SQL query.
         if (isset($blueprint->collation)) {
-            $sql .= ' collate '.$blueprint->collation;
+            $sql .= " collate '{$blueprint->collation}'";
         } elseif (! is_null($collation = $connection->getConfig('collation'))) {
-            $sql .= ' collate '.$collation;
+            $sql .= " collate '{$collation}'";
+        }
+
+        return $sql;
+    }
+
+    /**
+     * Append the engine specifications to a command.
+     *
+     * @param  string  $sql
+     * @param  \Illuminate\Database\Connection  $connection
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @return string
+     */
+    protected function compileCreateEngine($sql, Connection $connection, Blueprint $blueprint)
+    {
+        if (isset($blueprint->engine)) {
+            return $sql.' engine = '.$blueprint->engine;
+        } elseif (! is_null($engine = $connection->getConfig('engine'))) {
+            return $sql.' engine = '.$engine;
         }
 
         return $sql;
@@ -105,15 +178,29 @@ class MySqlGrammar extends Grammar
      *
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
      * @param  \Illuminate\Support\Fluent  $command
-     * @return string
+     * @return array
      */
     public function compileAdd(Blueprint $blueprint, Fluent $command)
     {
-        $table = $this->wrapTable($blueprint);
-
         $columns = $this->prefixArray('add', $this->getColumns($blueprint));
 
-        return 'alter table '.$table.' '.implode(', ', $columns);
+        return array_values(array_merge(
+            ['alter table '.$this->wrapTable($blueprint).' '.implode(', ', $columns)],
+            $this->compileAutoIncrementStartingValues($blueprint)
+        ));
+    }
+
+    /**
+     * Compile the auto-incrementing column starting values.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @return array
+     */
+    public function compileAutoIncrementStartingValues(Blueprint $blueprint)
+    {
+        return collect($blueprint->autoIncrementingStartingValues())->map(function ($value, $column) use ($blueprint) {
+            return 'alter table '.$this->wrapTable($blueprint->getTable()).' auto_increment = '.$value;
+        })->all();
     }
 
     /**
@@ -155,6 +242,30 @@ class MySqlGrammar extends Grammar
     }
 
     /**
+     * Compile a fulltext index key command.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @return string
+     */
+    public function compileFullText(Blueprint $blueprint, Fluent $command)
+    {
+        return $this->compileKey($blueprint, $command, 'fulltext');
+    }
+
+    /**
+     * Compile a spatial index key command.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @return string
+     */
+    public function compileSpatialIndex(Blueprint $blueprint, Fluent $command)
+    {
+        return $this->compileKey($blueprint, $command, 'spatial index');
+    }
+
+    /**
      * Compile an index creation command.
      *
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
@@ -164,13 +275,13 @@ class MySqlGrammar extends Grammar
      */
     protected function compileKey(Blueprint $blueprint, Fluent $command, $type)
     {
-        $columns = $this->columnize($command->columns);
-
-        $table = $this->wrapTable($blueprint);
-
-        $index = $this->wrap($command->index);
-
-        return "alter table {$table} add {$type} {$index}($columns)";
+        return sprintf('alter table %s add %s %s%s(%s)',
+            $this->wrapTable($blueprint),
+            $type,
+            $this->wrap($command->index),
+            $command->algorithm ? ' using '.$command->algorithm : '',
+            $this->columnize($command->columns)
+        );
     }
 
     /**
@@ -208,9 +319,7 @@ class MySqlGrammar extends Grammar
     {
         $columns = $this->prefixArray('drop', $this->wrapArray($command->columns));
 
-        $table = $this->wrapTable($blueprint);
-
-        return 'alter table '.$table.' '.implode(', ', $columns);
+        return 'alter table '.$this->wrapTable($blueprint).' '.implode(', ', $columns);
     }
 
     /**
@@ -234,11 +343,9 @@ class MySqlGrammar extends Grammar
      */
     public function compileDropUnique(Blueprint $blueprint, Fluent $command)
     {
-        $table = $this->wrapTable($blueprint);
-
         $index = $this->wrap($command->index);
 
-        return "alter table {$table} drop index {$index}";
+        return "alter table {$this->wrapTable($blueprint)} drop index {$index}";
     }
 
     /**
@@ -250,11 +357,33 @@ class MySqlGrammar extends Grammar
      */
     public function compileDropIndex(Blueprint $blueprint, Fluent $command)
     {
-        $table = $this->wrapTable($blueprint);
-
         $index = $this->wrap($command->index);
 
-        return "alter table {$table} drop index {$index}";
+        return "alter table {$this->wrapTable($blueprint)} drop index {$index}";
+    }
+
+    /**
+     * Compile a drop fulltext index command.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @return string
+     */
+    public function compileDropFullText(Blueprint $blueprint, Fluent $command)
+    {
+        return $this->compileDropIndex($blueprint, $command);
+    }
+
+    /**
+     * Compile a drop spatial index command.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @return string
+     */
+    public function compileDropSpatialIndex(Blueprint $blueprint, Fluent $command)
+    {
+        return $this->compileDropIndex($blueprint, $command);
     }
 
     /**
@@ -266,11 +395,9 @@ class MySqlGrammar extends Grammar
      */
     public function compileDropForeign(Blueprint $blueprint, Fluent $command)
     {
-        $table = $this->wrapTable($blueprint);
-
         $index = $this->wrap($command->index);
 
-        return "alter table {$table} drop foreign key {$index}";
+        return "alter table {$this->wrapTable($blueprint)} drop foreign key {$index}";
     }
 
     /**
@@ -285,6 +412,64 @@ class MySqlGrammar extends Grammar
         $from = $this->wrapTable($blueprint);
 
         return "rename table {$from} to ".$this->wrapTable($command->to);
+    }
+
+    /**
+     * Compile a rename index command.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @return string
+     */
+    public function compileRenameIndex(Blueprint $blueprint, Fluent $command)
+    {
+        return sprintf('alter table %s rename index %s to %s',
+            $this->wrapTable($blueprint),
+            $this->wrap($command->from),
+            $this->wrap($command->to)
+        );
+    }
+
+    /**
+     * Compile the SQL needed to drop all tables.
+     *
+     * @param  array  $tables
+     * @return string
+     */
+    public function compileDropAllTables($tables)
+    {
+        return 'drop table '.implode(',', $this->wrapArray($tables));
+    }
+
+    /**
+     * Compile the SQL needed to drop all views.
+     *
+     * @param  array  $views
+     * @return string
+     */
+    public function compileDropAllViews($views)
+    {
+        return 'drop view '.implode(',', $this->wrapArray($views));
+    }
+
+    /**
+     * Compile the SQL needed to retrieve all table names.
+     *
+     * @return string
+     */
+    public function compileGetAllTables()
+    {
+        return 'SHOW FULL TABLES WHERE table_type = \'BASE TABLE\'';
+    }
+
+    /**
+     * Compile the SQL needed to retrieve all view names.
+     *
+     * @return string
+     */
+    public function compileGetAllViews()
+    {
+        return 'SHOW FULL TABLES WHERE table_type = \'VIEW\'';
     }
 
     /**
@@ -327,6 +512,17 @@ class MySqlGrammar extends Grammar
     protected function typeString(Fluent $column)
     {
         return "varchar({$column->length})";
+    }
+
+    /**
+     * Create the column definition for a tiny text type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeTinyText(Fluent $column)
+    {
+        return 'tinytext';
     }
 
     /**
@@ -374,7 +570,7 @@ class MySqlGrammar extends Grammar
     }
 
     /**
-     * Create the column definition for a integer type.
+     * Create the column definition for an integer type.
      *
      * @param  \Illuminate\Support\Fluent  $column
      * @return string
@@ -466,14 +662,25 @@ class MySqlGrammar extends Grammar
     }
 
     /**
-     * Create the column definition for an enum type.
+     * Create the column definition for an enumeration type.
      *
      * @param  \Illuminate\Support\Fluent  $column
      * @return string
      */
     protected function typeEnum(Fluent $column)
     {
-        return "enum('".implode("', '", $column->allowed)."')";
+        return sprintf('enum(%s)', $this->quoteString($column->allowed));
+    }
+
+    /**
+     * Create the column definition for a set enumeration type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeSet(Fluent $column)
+    {
+        return sprintf('set(%s)', $this->quoteString($column->allowed));
     }
 
     /**
@@ -517,18 +724,24 @@ class MySqlGrammar extends Grammar
      */
     protected function typeDateTime(Fluent $column)
     {
-        return 'datetime';
+        $columnType = $column->precision ? "datetime($column->precision)" : 'datetime';
+
+        $current = $column->precision ? "CURRENT_TIMESTAMP($column->precision)" : 'CURRENT_TIMESTAMP';
+
+        $columnType = $column->useCurrent ? "$columnType default $current" : $columnType;
+
+        return $column->useCurrentOnUpdate ? "$columnType on update $current" : $columnType;
     }
 
     /**
-     * Create the column definition for a date-time type.
+     * Create the column definition for a date-time (with time zone) type.
      *
      * @param  \Illuminate\Support\Fluent  $column
      * @return string
      */
     protected function typeDateTimeTz(Fluent $column)
     {
-        return 'datetime';
+        return $this->typeDateTime($column);
     }
 
     /**
@@ -539,18 +752,18 @@ class MySqlGrammar extends Grammar
      */
     protected function typeTime(Fluent $column)
     {
-        return 'time';
+        return $column->precision ? "time($column->precision)" : 'time';
     }
 
     /**
-     * Create the column definition for a time type.
+     * Create the column definition for a time (with time zone) type.
      *
      * @param  \Illuminate\Support\Fluent  $column
      * @return string
      */
     protected function typeTimeTz(Fluent $column)
     {
-        return 'time';
+        return $this->typeTime($column);
     }
 
     /**
@@ -561,26 +774,35 @@ class MySqlGrammar extends Grammar
      */
     protected function typeTimestamp(Fluent $column)
     {
-        if ($column->useCurrent) {
-            return 'timestamp default CURRENT_TIMESTAMP';
-        }
+        $columnType = $column->precision ? "timestamp($column->precision)" : 'timestamp';
 
-        return 'timestamp';
+        $current = $column->precision ? "CURRENT_TIMESTAMP($column->precision)" : 'CURRENT_TIMESTAMP';
+
+        $columnType = $column->useCurrent ? "$columnType default $current" : $columnType;
+
+        return $column->useCurrentOnUpdate ? "$columnType on update $current" : $columnType;
     }
 
     /**
-     * Create the column definition for a timestamp type.
+     * Create the column definition for a timestamp (with time zone) type.
      *
      * @param  \Illuminate\Support\Fluent  $column
      * @return string
      */
     protected function typeTimestampTz(Fluent $column)
     {
-        if ($column->useCurrent) {
-            return 'timestamp default CURRENT_TIMESTAMP';
-        }
+        return $this->typeTimestamp($column);
+    }
 
-        return 'timestamp';
+    /**
+     * Create the column definition for a year type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeYear(Fluent $column)
+    {
+        return 'year';
     }
 
     /**
@@ -625,6 +847,107 @@ class MySqlGrammar extends Grammar
     protected function typeMacAddress(Fluent $column)
     {
         return 'varchar(17)';
+    }
+
+    /**
+     * Create the column definition for a spatial Geometry type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typeGeometry(Fluent $column)
+    {
+        return 'geometry';
+    }
+
+    /**
+     * Create the column definition for a spatial Point type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typePoint(Fluent $column)
+    {
+        return 'point';
+    }
+
+    /**
+     * Create the column definition for a spatial LineString type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typeLineString(Fluent $column)
+    {
+        return 'linestring';
+    }
+
+    /**
+     * Create the column definition for a spatial Polygon type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typePolygon(Fluent $column)
+    {
+        return 'polygon';
+    }
+
+    /**
+     * Create the column definition for a spatial GeometryCollection type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typeGeometryCollection(Fluent $column)
+    {
+        return 'geometrycollection';
+    }
+
+    /**
+     * Create the column definition for a spatial MultiPoint type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typeMultiPoint(Fluent $column)
+    {
+        return 'multipoint';
+    }
+
+    /**
+     * Create the column definition for a spatial MultiLineString type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typeMultiLineString(Fluent $column)
+    {
+        return 'multilinestring';
+    }
+
+    /**
+     * Create the column definition for a spatial MultiPolygon type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    public function typeMultiPolygon(Fluent $column)
+    {
+        return 'multipolygon';
+    }
+
+    /**
+     * Create the column definition for a generated, computed column type.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return void
+     *
+     * @throws \RuntimeException
+     */
+    protected function typeComputed(Fluent $column)
+    {
+        throw new RuntimeException('This database driver requires a type, see the virtualAs / storedAs modifiers.');
     }
 
     /**
@@ -693,7 +1016,7 @@ class MySqlGrammar extends Grammar
     protected function modifyCollate(Blueprint $blueprint, Fluent $column)
     {
         if (! is_null($column->collation)) {
-            return ' collate '.$column->collation;
+            return " collate '{$column->collation}'";
         }
     }
 
@@ -706,7 +1029,27 @@ class MySqlGrammar extends Grammar
      */
     protected function modifyNullable(Blueprint $blueprint, Fluent $column)
     {
-        return $column->nullable ? ' null' : ' not null';
+        if (is_null($column->virtualAs) && is_null($column->storedAs)) {
+            return $column->nullable ? ' null' : ' not null';
+        }
+
+        if ($column->nullable === false) {
+            return ' not null';
+        }
+    }
+
+    /**
+     * Get the SQL for an invisible column modifier.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string|null
+     */
+    protected function modifyInvisible(Blueprint $blueprint, Fluent $column)
+    {
+        if (! is_null($column->invisible)) {
+            return ' invisible';
+        }
     }
 
     /**
@@ -775,7 +1118,21 @@ class MySqlGrammar extends Grammar
     protected function modifyComment(Blueprint $blueprint, Fluent $column)
     {
         if (! is_null($column->comment)) {
-            return ' comment "'.$column->comment.'"';
+            return " comment '".addslashes($column->comment)."'";
+        }
+    }
+
+    /**
+     * Get the SQL for a SRID column modifier.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string|null
+     */
+    protected function modifySrid(Blueprint $blueprint, Fluent $column)
+    {
+        if (! is_null($column->srid) && is_int($column->srid) && $column->srid > 0) {
+            return ' srid '.$column->srid;
         }
     }
 
@@ -787,10 +1144,10 @@ class MySqlGrammar extends Grammar
      */
     protected function wrapValue($value)
     {
-        if ($value === '*') {
-            return $value;
+        if ($value !== '*') {
+            return '`'.str_replace('`', '``', $value).'`';
         }
 
-        return '`'.str_replace('`', '``', $value).'`';
+        return $value;
     }
 }

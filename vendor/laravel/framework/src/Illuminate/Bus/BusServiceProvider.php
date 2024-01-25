@@ -2,17 +2,14 @@
 
 namespace Illuminate\Bus;
 
+use Illuminate\Contracts\Bus\Dispatcher as DispatcherContract;
+use Illuminate\Contracts\Bus\QueueingDispatcher as QueueingDispatcherContract;
+use Illuminate\Contracts\Queue\Factory as QueueFactoryContract;
+use Illuminate\Contracts\Support\DeferrableProvider;
 use Illuminate\Support\ServiceProvider;
 
-class BusServiceProvider extends ServiceProvider
+class BusServiceProvider extends ServiceProvider implements DeferrableProvider
 {
-    /**
-     * Indicates if loading of the provider is deferred.
-     *
-     * @var bool
-     */
-    protected $defer = true;
-
     /**
      * Register the service provider.
      *
@@ -20,19 +17,39 @@ class BusServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        $this->app->singleton('Illuminate\Bus\Dispatcher', function ($app) {
+        $this->app->singleton(Dispatcher::class, function ($app) {
             return new Dispatcher($app, function ($connection = null) use ($app) {
-                return $app['Illuminate\Contracts\Queue\Factory']->connection($connection);
+                return $app[QueueFactoryContract::class]->connection($connection);
             });
         });
 
+        $this->registerBatchServices();
+
         $this->app->alias(
-            'Illuminate\Bus\Dispatcher', 'Illuminate\Contracts\Bus\Dispatcher'
+            Dispatcher::class, DispatcherContract::class
         );
 
         $this->app->alias(
-            'Illuminate\Bus\Dispatcher', 'Illuminate\Contracts\Bus\QueueingDispatcher'
+            Dispatcher::class, QueueingDispatcherContract::class
         );
+    }
+
+    /**
+     * Register the batch handling services.
+     *
+     * @return void
+     */
+    protected function registerBatchServices()
+    {
+        $this->app->singleton(BatchRepository::class, DatabaseBatchRepository::class);
+
+        $this->app->singleton(DatabaseBatchRepository::class, function ($app) {
+            return new DatabaseBatchRepository(
+                $app->make(BatchFactory::class),
+                $app->make('db')->connection($app->config->get('queue.batching.database')),
+                $app->config->get('queue.batching.table', 'job_batches')
+            );
+        });
     }
 
     /**
@@ -43,9 +60,10 @@ class BusServiceProvider extends ServiceProvider
     public function provides()
     {
         return [
-            'Illuminate\Bus\Dispatcher',
-            'Illuminate\Contracts\Bus\Dispatcher',
-            'Illuminate\Contracts\Bus\QueueingDispatcher',
+            Dispatcher::class,
+            DispatcherContract::class,
+            QueueingDispatcherContract::class,
+            BatchRepository::class,
         ];
     }
 }

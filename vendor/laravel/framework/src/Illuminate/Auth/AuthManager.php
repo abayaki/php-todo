@@ -3,8 +3,8 @@
 namespace Illuminate\Auth;
 
 use Closure;
-use InvalidArgumentException;
 use Illuminate\Contracts\Auth\Factory as FactoryContract;
+use InvalidArgumentException;
 
 class AuthManager implements FactoryContract
 {
@@ -13,7 +13,7 @@ class AuthManager implements FactoryContract
     /**
      * The application instance.
      *
-     * @var \Illuminate\Foundation\Application
+     * @var \Illuminate\Contracts\Foundation\Application
      */
     protected $app;
 
@@ -43,7 +43,7 @@ class AuthManager implements FactoryContract
     /**
      * Create a new Auth manager instance.
      *
-     * @param  \Illuminate\Foundation\Application  $app
+     * @param  \Illuminate\Contracts\Foundation\Application  $app
      * @return void
      */
     public function __construct($app)
@@ -58,16 +58,14 @@ class AuthManager implements FactoryContract
     /**
      * Attempt to get the guard from the local cache.
      *
-     * @param  string  $name
+     * @param  string|null  $name
      * @return \Illuminate\Contracts\Auth\Guard|\Illuminate\Contracts\Auth\StatefulGuard
      */
     public function guard($name = null)
     {
         $name = $name ?: $this->getDefaultDriver();
 
-        return isset($this->guards[$name])
-                    ? $this->guards[$name]
-                    : $this->guards[$name] = $this->resolve($name);
+        return $this->guards[$name] ?? $this->guards[$name] = $this->resolve($name);
     }
 
     /**
@@ -88,15 +86,17 @@ class AuthManager implements FactoryContract
 
         if (isset($this->customCreators[$config['driver']])) {
             return $this->callCustomCreator($name, $config);
-        } else {
-            $driverMethod = 'create'.ucfirst($config['driver']).'Driver';
-
-            if (method_exists($this, $driverMethod)) {
-                return $this->{$driverMethod}($name, $config);
-            } else {
-                throw new InvalidArgumentException("Auth guard driver [{$name}] is not defined.");
-            }
         }
+
+        $driverMethod = 'create'.ucfirst($config['driver']).'Driver';
+
+        if (method_exists($this, $driverMethod)) {
+            return $this->{$driverMethod}($name, $config);
+        }
+
+        throw new InvalidArgumentException(
+            "Auth driver [{$config['driver']}] for guard [{$name}] is not defined."
+        );
     }
 
     /**
@@ -120,9 +120,13 @@ class AuthManager implements FactoryContract
      */
     public function createSessionDriver($name, $config)
     {
-        $provider = $this->createUserProvider($config['provider']);
+        $provider = $this->createUserProvider($config['provider'] ?? null);
 
-        $guard = new SessionGuard($name, $provider, $this->app['session.store']);
+        $guard = new SessionGuard(
+            $name,
+            $provider,
+            $this->app['session.store'],
+        );
 
         // When using the remember me functionality of the authentication services we
         // will need to be set the encryption instance of the guard, which allows
@@ -137,6 +141,10 @@ class AuthManager implements FactoryContract
 
         if (method_exists($guard, 'setRequest')) {
             $guard->setRequest($this->app->refresh('request', $guard, 'setRequest'));
+        }
+
+        if (isset($config['remember'])) {
+            $guard->setRememberDuration($config['remember']);
         }
 
         return $guard;
@@ -155,8 +163,11 @@ class AuthManager implements FactoryContract
         // that takes an API token field from the request and matches it to the
         // user in the database or another persistence layer where users are.
         $guard = new TokenGuard(
-            $this->createUserProvider($config['provider']),
-            $this->app['request']
+            $this->createUserProvider($config['provider'] ?? null),
+            $this->app['request'],
+            $config['input_key'] ?? 'api_token',
+            $config['storage_key'] ?? 'api_token',
+            $config['hash'] ?? false
         );
 
         $this->app->refresh('request', $guard, 'setRequest');
@@ -193,6 +204,8 @@ class AuthManager implements FactoryContract
      */
     public function shouldUse($name)
     {
+        $name = $name ?: $this->getDefaultDriver();
+
         $this->setDefaultDriver($name);
 
         $this->userResolver = function ($name = null) {
@@ -221,7 +234,7 @@ class AuthManager implements FactoryContract
     public function viaRequest($driver, callable $callback)
     {
         return $this->extend($driver, function () use ($callback) {
-            $guard = new RequestGuard($callback, $this->app['request']);
+            $guard = new RequestGuard($callback, $this->app['request'], $this->createUserProvider());
 
             $this->app->refresh('request', $guard, 'setRequest');
 
@@ -281,6 +294,41 @@ class AuthManager implements FactoryContract
     }
 
     /**
+     * Determines if any guards have already been resolved.
+     *
+     * @return bool
+     */
+    public function hasResolvedGuards()
+    {
+        return count($this->guards) > 0;
+    }
+
+    /**
+     * Forget all of the resolved guard instances.
+     *
+     * @return $this
+     */
+    public function forgetGuards()
+    {
+        $this->guards = [];
+
+        return $this;
+    }
+
+    /**
+     * Set the application instance used by the manager.
+     *
+     * @param  \Illuminate\Contracts\Foundation\Application  $app
+     * @return $this
+     */
+    public function setApplication($app)
+    {
+        $this->app = $app;
+
+        return $this;
+    }
+
+    /**
      * Dynamically call the default driver instance.
      *
      * @param  string  $method
@@ -289,6 +337,6 @@ class AuthManager implements FactoryContract
      */
     public function __call($method, $parameters)
     {
-        return call_user_func_array([$this->guard(), $method], $parameters);
+        return $this->guard()->{$method}(...$parameters);
     }
 }
