@@ -22,12 +22,14 @@ pipeline {
                     // Create a local PHP configuration file in the project directory
                     sh 'echo "extension=mbstring.so" > mbstring.ini'
 
-                sh 'mv .env.sample .env'
-                sh 'composer install'
-                sh 'php artisan migrate'
-                sh 'php artisan db:seed'
-                sh 'php artisan key:generate'
+                    // Install the mbstring extension
+                    sh 'sudo apt-get install -y php7.4-mbstring'
 
+                    sh 'mv .env.sample .env'
+                    sh 'composer install'
+                    sh 'php artisan migrate'
+                    sh 'php artisan db:seed'
+                    sh 'php artisan key:generate'
                 }
             }
         }
