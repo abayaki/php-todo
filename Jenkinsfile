@@ -2,11 +2,9 @@ pipeline {
     agent any
 
     stages {
-        stage("Initial cleanup") {
+        stage("Initial Cleanup") {
             steps {
-                dir("${WORKSPACE}") {
-                    deleteDir()
-                }
+                cleanWs()
             }
         }
 
@@ -23,7 +21,7 @@ pipeline {
                     sh 'echo "extension=mbstring.so" > mbstring.ini'
 
                     // Install the mbstring extension without sudo
-                    sh ' apt-get install -y php7.4-mbstring'
+                    sh 'apt-get update && apt-get install -y php7.4-mbstring'
 
                     sh 'mv .env.sample .env'
                     sh 'composer install'
@@ -90,7 +88,7 @@ pipeline {
 
         stage('Deploy to Dev Environment') {
             steps {
-                build job: 'ansible-project/main', parameters: [[$class: 'StringParameterValue', name: 'env', value: 'dev']], propagate: false, wait: true
+                build job: 'ansible-project/main', parameters: [string(name: 'env', value: 'dev')], propagate: false, wait: true
             }
         }
     }
