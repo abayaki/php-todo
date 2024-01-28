@@ -1,0 +1,1 @@
+{"version":1,"defects":{"ExampleTest::test_tasks_are_displayed_on_the_dashboard":4,"ExampleTest::test_tasks_can_be_created":4,"ExampleTest::test_long_tasks_cant_be_created":4},"times":{"ExampleTest::test_tasks_are_displayed_on_the_dashboard":0.265,"ExampleTest::test_tasks_can_be_created":0.079,"ExampleTest::test_long_tasks_cant_be_created":0.156}}

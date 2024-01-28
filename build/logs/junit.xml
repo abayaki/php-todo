@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="Application Test Suite" tests="3" assertions="0" errors="3" warnings="0" failures="0" skipped="0" time="0.499107">
+    <testsuite name="ExampleTest" file="/home/ubuntu/php-todo/tests/ExampleTest.php" tests="3" assertions="0" errors="3" warnings="0" failures="0" skipped="0" time="0.499107">
+      <testcase name="test_tasks_are_displayed_on_the_dashboard" class="ExampleTest" classname="ExampleTest" file="/home/ubuntu/php-todo/tests/ExampleTest.php" line="14" assertions="0" time="0.264674">
+        <error type="PDOException">ExampleTest::test_tasks_are_displayed_on_the_dashboard
+PDOException: SQLSTATE[HY000] [1045] Access denied for user 'forge'@'localhost' (using password: NO)
+
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/Connector.php:70
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/Connector.php:46
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/MySqlConnector.php:24
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/ConnectionFactory.php:184
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connection.php:1064
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Concerns/ManagesTransactions.php:139
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Concerns/ManagesTransactions.php:115
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/DatabaseTransactions.php:21
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/TestCase.php:130
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/TestCase.php:91
+phpvfscomposer:///home/ubuntu/php-todo/vendor/phpunit/phpunit/phpunit:97
+</error>
+      </testcase>
+      <testcase name="test_tasks_can_be_created" class="ExampleTest" classname="ExampleTest" file="/home/ubuntu/php-todo/tests/ExampleTest.php" line="27" assertions="0" time="0.078768">
+        <error type="PDOException">ExampleTest::test_tasks_can_be_created
+PDOException: SQLSTATE[HY000] [1045] Access denied for user 'forge'@'localhost' (using password: NO)
+
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/Connector.php:70
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/Connector.php:46
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/MySqlConnector.php:24
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/ConnectionFactory.php:184
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connection.php:1064
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Concerns/ManagesTransactions.php:139
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Concerns/ManagesTransactions.php:115
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/DatabaseTransactions.php:21
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/TestCase.php:130
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/TestCase.php:91
+phpvfscomposer:///home/ubuntu/php-todo/vendor/phpunit/phpunit/phpunit:97
+</error>
+      </testcase>
+      <testcase name="test_long_tasks_cant_be_created" class="ExampleTest" classname="ExampleTest" file="/home/ubuntu/php-todo/tests/ExampleTest.php" line="38" assertions="0" time="0.155665">
+        <error type="PDOException">ExampleTest::test_long_tasks_cant_be_created
+PDOException: SQLSTATE[HY000] [1045] Access denied for user 'forge'@'localhost' (using password: NO)
+
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/Connector.php:70
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/Connector.php:46
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/MySqlConnector.php:24
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connectors/ConnectionFactory.php:184
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Connection.php:1064
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Concerns/ManagesTransactions.php:139
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Database/Concerns/ManagesTransactions.php:115
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/DatabaseTransactions.php:21
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/TestCase.php:130
+/home/ubuntu/php-todo/vendor/laravel/framework/src/Illuminate/Foundation/Testing/TestCase.php:91
+phpvfscomposer:///home/ubuntu/php-todo/vendor/phpunit/phpunit/phpunit:97
+</error>
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>
