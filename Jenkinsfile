@@ -1,92 +1,62 @@
 pipeline {
     agent any
 
+    environment {
+        REGISTRY = 'docker.io'  // Docker registry
+        REGISTRY_CREDENTIALS = 'Docker-credential'  // Jenkins credentials ID for DockerHub
+        DOCKERHUB_REPO = 'abayaki/php-todo-app'
+    }
+
     stages {
-        stage("Initial Cleanup") {
+        stage('Checkout') {
             steps {
-                cleanWs()
+                // Check out the source code
+                git branch: "${env.BRANCH_NAME}", url: 'https://github.com/abayaki/php-todo.git'
             }
         }
 
-        stage('Checkout SCM') {
-            steps {
-                git branch: 'main', url: 'https://github.com/abayaki/php-todo.git'
-            }
-        }
-
-        stage('Prepare Dependencies') {
+        stage('Docker Build') {
             steps {
                 script {
-                    // Create a local PHP configuration file in the project directory
-                    sh 'echo "extension=mbstring.so" > mbstring.ini'
+                    // Set image tag based on the branch
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
 
-                    sh 'mv .env.sample .env'
-                    sh 'composer install'
-                    sh 'php artisan migrate'
-                    sh 'php artisan db:seed'
-                    sh 'php artisan key:generate'
+                    // Build Docker image
+                    sh """
+                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                    """
                 }
             }
         }
 
-        stage('Execute Unit Tests') {
-            steps {
-                sh './vendor/bin/phpunit'
-            }
-        }
-
-        stage('Code Analysis') {
-            steps {
-                sh 'phploc app/ --log-csv build/logs/phploc.csv'
-            }
-        }
-
-        stage('SonarQube Quality Gate') {
-            when {
-                branch pattern: "^develop.*|^hotfix.*|^release.*|^main.*", comparator: "REGEXP"
-            }
-            environment {
-                scannerHome = tool 'SonarQubeScanner'
-            }
-            steps {
-                withSonarQubeEnv('sonarqube') {
-                    sh "${scannerHome}/bin/sonar-scanner -Dproject.settings=sonar-project.properties"
-                }
-                timeout(time: 1, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-
-        stage('Package Artifact') {
-            steps {
-                sh 'zip -qr php-todo.zip ${WORKSPACE}/*'
-            }
-        }
-
-        stage('Upload Artifact to Artifactory') {
+        stage('Docker Login') {
             steps {
                 script {
-                    def server = Artifactory.server 'artifactory-server'
-                    def uploadSpec = """{
-                        "files": [
-                            {
-                                "pattern": "php-todo.zip",
-                                "target": "generic-local/php-todo", // Replace with your actual repository path
-                                "props": "type=zip;status=ready"
-                            }
-                        ]
-                    }"""
-
-                    server.upload spec: uploadSpec
+                    // Login to DockerHub using Jenkins credentials
+                    sh """
+                        echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USERNAME --password-stdin
+                    """
                 }
             }
         }
 
-        stage('Deploy to Dev Environment') {
+        stage('Docker Push') {
             steps {
-                build job: 'ansible-project/main', parameters: [string(name: 'env', value: 'dev')], propagate: false, wait: true
+                script {
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    // Push Docker image to DockerHub
+                    sh """
+                        docker push ${DOCKERHUB_REPO}:${imageTag}
+                    """
+                }
             }
+        }
+    }
+
+    post {
+        always {
+            // Clean up unused Docker images after the build
+            sh 'docker rmi ${DOCKERHUB_REPO}:${env.BRANCH_NAME}-${env.BUILD_NUMBER} || true'
         }
     }
 }
