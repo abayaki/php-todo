@@ -26,9 +26,9 @@ pipeline {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
 
-                    // Specify the correct path if Dockerfile is in a subdirectory
+                    // Build Docker image
                     bat """
-                        docker build -t abayaki/php-todo-app:${imageTag} .
+                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
                     """
                 }
             }
