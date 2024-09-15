@@ -28,7 +28,7 @@ pipeline {
 
                     // Specify the correct path if Dockerfile is in a subdirectory
                     bat """
-                        docker build -t ${DOCKERHUB_REPO}:${imageTag} -f build/Dockerfile .
+                        docker build -t abayaki/php-todo-app:${imageTag} .
                     """
                 }
             }
