@@ -39,6 +39,7 @@ pipeline {
                 script {
                     // Use Jenkins credentials for DockerHub login
                     withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                        echo "Logging into DockerHub as ${DOCKERHUB_USERNAME}"
                         bat """
                             echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
                         """
