@@ -3,7 +3,7 @@ services:
   php-todo-app:
     build: .
     ports:
-      - "8080:80"
+      - "8081:80"
     volumes:
       - ./src:/var/www/html
     depends_on:
