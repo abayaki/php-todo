@@ -2,8 +2,7 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = 'docker.io'  // Docker registry
-        REGISTRY_CREDENTIALS = 'Docker-credential'  // Jenkins credentials ID for DockerHub
+        REGISTRY = 'docker.io'
         DOCKERHUB_REPO = 'abayaki/php-todo-app'
     }
 
@@ -22,9 +21,15 @@ pipeline {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
 
                     // Build Docker image
-                    sh """
-                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
-                    """
+                    if (isUnix()) {
+                        sh """
+                            docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                        """
+                    } else {
+                        bat """
+                            docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                        """
+                    }
                 }
             }
         }
@@ -32,10 +37,17 @@ pipeline {
         stage('Docker Login') {
             steps {
                 script {
-                    // Login to DockerHub using Jenkins credentials
-                    sh """
-                        echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USERNAME --password-stdin
-                    """
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                        if (isUnix()) {
+                            sh """
+                                echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USERNAME --password-stdin
+                            """
+                        } else {
+                            bat """
+                                echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
+                            """
+                        }
+                    }
                 }
             }
         }
@@ -44,10 +56,17 @@ pipeline {
             steps {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+
                     // Push Docker image to DockerHub
-                    sh """
-                        docker push ${DOCKERHUB_REPO}:${imageTag}
-                    """
+                    if (isUnix()) {
+                        sh """
+                            docker push ${DOCKERHUB_REPO}:${imageTag}
+                        """
+                    } else {
+                        bat """
+                            docker push ${DOCKERHUB_REPO}:${imageTag}
+                        """
+                    }
                 }
             }
         }
@@ -55,8 +74,18 @@ pipeline {
 
     post {
         always {
-            // Clean up unused Docker images after the build
-            sh 'docker rmi ${DOCKERHUB_REPO}:${env.BRANCH_NAME}-${env.BUILD_NUMBER} || true'
+            script {
+                try {
+                    // Clean up unused Docker images after the build
+                    if (isUnix()) {
+                        sh 'docker rmi ${DOCKERHUB_REPO}:${env.BRANCH_NAME}-${env.BUILD_NUMBER} || true'
+                    } else {
+                        bat 'docker rmi ${DOCKERHUB_REPO}:${env.BRANCH_NAME}-${env.BUILD_NUMBER} || true'
+                    }
+                } catch (Exception e) {
+                    echo "Failed to remove Docker images: ${e.getMessage()}"
+                }
+            }
         }
     }
 }
