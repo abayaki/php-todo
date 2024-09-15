@@ -1,0 +1,35 @@
+version: '3'
+services:
+  php-todo-app:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./src:/var/www/html
+    depends_on:
+      - mysql
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=todo_user
+      - MYSQL_PASSWORD=todo_password
+      - MYSQL_DATABASE=todo_db
+    networks:
+      - todo-network
+
+  mysql:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: todo_db
+      MYSQL_USER: todo_user
+      MYSQL_PASSWORD: todo_password
+    networks:
+      - todo-network
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+networks:
+  todo-network:
+
+volumes:
+  mysql-data:
