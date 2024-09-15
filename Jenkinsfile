@@ -34,31 +34,23 @@ pipeline {
             }
         }
 
-        stage('Docker Login') {
+        stage('Docker Login & Push') {
             steps {
                 script {
-                    // Use Jenkins credentials for DockerHub login
-                    withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                        echo "Logging into DockerHub as ${DOCKERHUB_USERNAME}"
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    withDockerRegistry([credentialsId: "${REGISTRY_CREDENTIALS}", url: "${REGISTRY}"]) {
+                        // Build the Docker image
                         bat """
-                            echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
+                            docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                        """
+                        // Push the Docker image to DockerHub
+                        bat """
+                            docker push ${DOCKERHUB_REPO}:${imageTag}
                         """
                     }
                 }
             }
-        }
-
-        stage('Docker Push') {
-            steps {
-                script {
-                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    bat """
-                        docker push ${DOCKERHUB_REPO}:${imageTag}
-                    """
-                }
-            }
-        }
-    }
+        }    
 
     post {
         always {
