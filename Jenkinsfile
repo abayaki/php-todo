@@ -57,4 +57,3 @@ pipeline {
             bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
         }
     }
-}
