@@ -14,13 +14,6 @@ pipeline {
             }
         }
 
-        stage('Verify Docker Installation') {
-            steps {
-                bat 'docker --version'
-            }
-        }
-
-
         stage('Verify Dockerfile') {
             steps {
                 // Check that Dockerfile is present
@@ -33,9 +26,9 @@ pipeline {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
 
-                    // Build Docker image
+                    // Specify the correct path if Dockerfile is in a subdirectory
                     bat """
-                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                        docker build -t ${DOCKERHUB_REPO}:${imageTag} -f build/Dockerfile .
                     """
                 }
             }
@@ -44,7 +37,6 @@ pipeline {
         stage('Docker Login') {
             steps {
                 script {
-                    // Login to DockerHub using Jenkins credentials
                     bat """
                         echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
                     """
@@ -66,7 +58,6 @@ pipeline {
 
     post {
         always {
-            // Clean up unused Docker images after the build
             bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
         }
     }
