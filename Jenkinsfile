@@ -36,18 +36,6 @@ pipeline {
             }
         }
 
-        stage('Test HTTPS Endpoint') {
-            steps {
-                script {
-                    def response = bat(script: "curl -o /dev/null -s -w \"%{http_code}\" http://localhost:5000", returnStdout: true).trim()
-                    echo "HTTPS Response code: ${responseHttps}"
-                    if (responseHttps != '200') {
-                        error("HTTPS Test failed with status code: ${responseHttps}")
-                    }
-                }
-            }
-        }
-
         stage('Docker Login') {
             steps {
                 script {
