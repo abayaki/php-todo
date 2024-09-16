@@ -1,0 +1,23 @@
+version: "3.9"
+services:
+  tooling_frontend:
+    build: .
+    ports:
+      - "5000:80"
+    volumes:
+      - tooling_frontend:/var/www/html
+    links:
+      - db
+  db:
+    image: mysql:5.7
+    restart: always
+    environment:
+      MYSQL_DATABASE: tooling_db  # Replace with the actual database name
+      MYSQL_USER: tooling_user    # Replace with the actual database user
+      MYSQL_PASSWORD: tooling_pass  # Replace with the actual password
+      MYSQL_RANDOM_ROOT_PASSWORD: '1'
+    volumes:
+      - db:/var/lib/mysql
+volumes:
+  tooling_frontend:
+  db:

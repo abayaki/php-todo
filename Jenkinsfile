@@ -10,14 +10,13 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo "Checking out branch: ${env.BRANCH_NAME}"
                 git branch: "${env.BRANCH_NAME}", url: 'https://github.com/abayaki/php-todo.git'
             }
         }
 
         stage('Verify Dockerfile') {
             steps {
-                bat 'dir' // Verify the Dockerfile exists
+                bat 'dir'
             }
         }
 
@@ -25,10 +24,21 @@ pipeline {
             steps {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    echo "Building Docker image with tag: ${imageTag}"
+
                     bat """
                         docker build -t abayaki/php-todo-app:${imageTag} .
                     """
+                }
+            }
+        }
+
+        stage('Test HTTP Endpoint') {
+            steps {
+                script {
+                    def response = bat(script: "curl -o /dev/null -s -w \"%{http_code}\" http://localhost:5000", returnStdout: true).trim()
+                    if (response != '200') {
+                        error("HTTP Test failed with status code: ${response}")
+                    }
                 }
             }
         }
@@ -37,7 +47,6 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                        echo "Logging into DockerHub as ${DOCKERHUB_USERNAME}"
                         bat """
                             docker login -u %DOCKERHUB_USERNAME% -p %DOCKERHUB_PASSWORD%
                         """
@@ -50,7 +59,6 @@ pipeline {
             steps {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    echo "Pushing Docker image: ${imageTag}"
                     bat """
                         docker push ${DOCKERHUB_REPO}:${imageTag}
                     """
