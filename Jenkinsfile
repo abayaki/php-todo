@@ -4,7 +4,7 @@ pipeline {
     environment {
         REGISTRY = 'docker.io'
         REGISTRY_CREDENTIALS = 'dockerhub-credentials'
-        DOCKERHUB_REPO = 'abayaki/tooling-app'
+        DOCKERHUB_REPO = 'abayaki/php-todo-app'  // Updated to use the correct repository
     }
 
     stages {
@@ -53,7 +53,7 @@ pipeline {
         stage('Docker Push') {
             steps {
                 script {
-                    // Push the Docker image to the repository
+                    // Push the Docker image to the correct repository
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     bat """
                         docker push ${DOCKERHUB_REPO}:${imageTag}
