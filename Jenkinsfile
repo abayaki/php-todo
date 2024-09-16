@@ -35,6 +35,7 @@ pipeline {
         stage('Test HTTP Endpoint') {
             steps {
                 script {
+                    // Correcting the curl command to include proper URL
                     def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:8081', returnStdout: true).trim()
                     echo "Response code: ${response}"
                     if (response != '200') {
