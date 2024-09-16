@@ -36,6 +36,7 @@ pipeline {
             steps {
                 script {
                     def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
+                    echo "Response code: ${response}"
                     if (response != '200') {
                         error("HTTP Test failed with status code: ${response}")
                     }
