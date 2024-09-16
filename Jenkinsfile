@@ -39,7 +39,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
                         echo "logging into DockerHub as ${DOCKERHUB_USERNAME}"
                         bat """
-                            echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
+                            docker login -u %DOCKERHUB_USERNAME% --password-stdin <<< %DOCKERHUB_PASSWORD%
                         """
                     }
                 }
