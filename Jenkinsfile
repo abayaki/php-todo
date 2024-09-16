@@ -4,32 +4,19 @@ pipeline {
     environment {
         REGISTRY = 'docker.io'
         REGISTRY_CREDENTIALS = 'dockerhub-credentials'
-        DOCKERHUB_REPO = 'abayaki/php-todo-app'  // Updated to use the correct repository
+        DOCKERHUB_REPO = 'abayaki/php-todo-app'
     }
 
     stages {
         stage('Checkout') {
             steps {
-                git branch: "${env.BRANCH_NAME}", url: 'https://github.com/abayaki/tooling.git'
+                git branch: "${env.BRANCH_NAME}", url: 'https://github.com/abayaki/php-todo.git'
             }
         }
 
-        stage('Docker Build') {
+        stage('Docker Compose Up') {
             steps {
                 script {
-                    // Build the Docker image
-                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    bat """
-                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
-                    """
-                }
-            }
-        }
-
-        stage('Docker Compose Up (Tooling)') {
-            steps {
-                script {
-                    // Bring up the tooling app using docker-compose
                     bat """
                         docker-compose -f tooling.yaml up -d
                     """
@@ -37,10 +24,35 @@ pipeline {
             }
         }
 
+        stage('Test HTTP Endpoint') {
+            steps {
+                script {
+                    // HTTP Test
+                    def responseHttp = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
+                    echo "HTTP Response code: ${responseHttp}"
+                    if (responseHttp != '200') {
+                        error("HTTP Test failed with status code: ${responseHttp}")
+                    }
+                }
+            }
+        }
+
+        stage('Test HTTPS Endpoint') {
+            steps {
+                script {
+                    // HTTPS Test
+                    def responseHttps = bat(script: 'curl -o /dev/null -s -w "%{http_code}" https://localhost:5000 --insecure', returnStdout: true).trim()
+                    echo "HTTPS Response code: ${responseHttps}"
+                    if (responseHttps != '200') {
+                        error("HTTPS Test failed with status code: ${responseHttps}")
+                    }
+                }
+            }
+        }
+
         stage('Docker Login') {
             steps {
                 script {
-                    // Login to DockerHub using Jenkins credentials
                     withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
                         bat """
                             docker login -u %DOCKERHUB_USERNAME% -p %DOCKERHUB_PASSWORD%
@@ -53,7 +65,6 @@ pipeline {
         stage('Docker Push') {
             steps {
                 script {
-                    // Push the Docker image to the correct repository
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     bat """
                         docker push ${DOCKERHUB_REPO}:${imageTag}
@@ -66,9 +77,9 @@ pipeline {
     post {
         always {
             script {
-                // Clean up the Docker Compose environment and remove images
+                // Clean up Docker Compose environment and remove images
                 bat 'docker-compose -f tooling.yaml down || exit 0'
-                bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
+                bat 'docker rmi ${DOCKERHUB_REPO}:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
             }
         }
     }
