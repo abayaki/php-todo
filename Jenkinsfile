@@ -10,7 +10,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo "checking out branch: ${env.BRANCH_NAME}"
+                echo "Checking out branch: ${env.BRANCH_NAME}"
                 git branch: "${env.BRANCH_NAME}", url: 'https://github.com/abayaki/php-todo.git'
             }
         }
@@ -25,7 +25,7 @@ pipeline {
             steps {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    eccho "Building Docker image with tag: ${imageTag}"
+                    echo "Building Docker image with tag: ${imageTag}"
                     bat """
                         docker build -t abayaki/php-todo-app:${imageTag} .
                     """
