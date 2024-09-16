@@ -14,16 +14,9 @@ pipeline {
             }
         }
 
-        stage('Verify Dockerfile') {
-            steps {
-                bat 'dir'
-            }
-        }
-
         stage('Docker Compose Up (PHP-todo)') {
             steps {
                 script {
-                    // Bring up the PHP-todo environment
                     bat """
                         docker-compose -f docker-compose.yml up -d
                     """
@@ -34,7 +27,6 @@ pipeline {
         stage('Docker Compose Up (Tooling)') {
             steps {
                 script {
-                    // Bring up the tooling environment
                     bat """
                         docker-compose -f tooling.yaml up -d
                     """
@@ -45,6 +37,7 @@ pipeline {
         stage('Test HTTP Endpoint (PHP-todo)') {
             steps {
                 script {
+                    // Corrected curl command with complete URL
                     def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:8081', returnStdout: true).trim()
                     echo "PHP-todo Response code: ${response}"
                     if (response != '200') {
@@ -57,6 +50,7 @@ pipeline {
         stage('Test HTTP Endpoint (Tooling)') {
             steps {
                 script {
+                    // Assuming Tooling app runs on port 5000
                     def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
                     echo "Tooling Response code: ${response}"
                     if (response != '200') {
@@ -93,11 +87,9 @@ pipeline {
     post {
         always {
             script {
-                // Stop and remove the Docker Compose environments for cleanup
+                // Clean up all Docker Compose environments and remove images
                 bat 'docker-compose -f docker-compose.yml down || exit 0'
                 bat 'docker-compose -f tooling.yaml down || exit 0'
-
-                // Remove any created images
                 bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
             }
         }
