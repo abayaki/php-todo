@@ -27,9 +27,9 @@ pipeline {
         stage('Test HTTP Endpoint (Tooling)') {
             steps {
                 script {
-                    // Assuming Tooling app runs on port 5000
+                    // Corrected curl command with full URL
                     def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
-                    echo "Tooling Response code: ${response}"
+                    echo "Tooling HTTP Response code: ${response}"
                     if (response != '200') {
                         error("Tooling HTTP Test failed with status code: ${response}")
                     }
@@ -64,7 +64,7 @@ pipeline {
     post {
         always {
             script {
-                // Clean up all Docker Compose environments and remove images
+                // Clean up Docker Compose environment and remove images
                 bat 'docker-compose -f tooling.yaml down || exit 0'
                 bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
             }
