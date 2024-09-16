@@ -38,7 +38,7 @@ pipeline {
             steps {
                 script {
                     // Corrected curl command with complete URL
-                    def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:8081', returnStdout: true).trim()
+                    def response = bat(script: "curl -o /dev/null -s -w \"%{http_code}\" http://localhost:8081", returnStdout: true).trim()
                     echo "PHP-todo Response code: ${response}"
                     if (response != '200') {
                         error("PHP-todo HTTP Test failed with status code: ${response}")
@@ -51,7 +51,7 @@ pipeline {
             steps {
                 script {
                     // Assuming Tooling app runs on port 5000
-                    def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
+                    def response = bat(script: "curl -o /dev/null -s -w \"%{http_code}\" http://localhost:5000", returnStdout: true).trim()
                     echo "Tooling Response code: ${response}"
                     if (response != '200') {
                         error("Tooling HTTP Test failed with status code: ${response}")
