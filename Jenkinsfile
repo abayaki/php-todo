@@ -16,7 +16,6 @@ pipeline {
 
         stage('Verify Dockerfile') {
             steps {
-                // Check that Dockerfile is present
                 bat 'dir'
             }
         }
@@ -26,34 +25,42 @@ pipeline {
                 script {
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
 
-                    // Build Docker image
                     bat """
-                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                        docker build -t abayaki/php-todo-app:${imageTag} .
                     """
                 }
             }
         }
 
-        stage('Docker Login & Push') {
+        // Add debug logging for credentials
+        stage('Docker Login') {
             steps {
                 script {
-                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-                    withDockerRegistry([credentialsId: "${REGISTRY_CREDENTIALS}", url: "${REGISTRY}"]) {
-                        // Build the Docker image
+                    withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                        echo "Logging into DockerHub as ${DOCKERHUB_USERNAME}" // This will mask the username automatically
                         bat """
-                            docker build -t ${DOCKERHUB_REPO}:${imageTag} .
-                        """
-                        // Push the Docker image to DockerHub
-                        bat """
-                            docker push ${DOCKERHUB_REPO}:${imageTag}
+                            echo %DOCKERHUB_PASSWORD% | docker login -u %DOCKERHUB_USERNAME% --password-stdin
                         """
                     }
                 }
             }
-        }    
+        }
+
+        stage('Docker Push') {
+            steps {
+                script {
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    bat """
+                        docker push ${DOCKERHUB_REPO}:${imageTag}
+                    """
+                }
+            }
+        }
+    }
 
     post {
         always {
             bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
         }
     }
+}
