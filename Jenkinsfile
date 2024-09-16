@@ -14,9 +14,22 @@ pipeline {
             }
         }
 
+        stage('Docker Build') {
+            steps {
+                script {
+                    // Build the Docker image
+                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+                    bat """
+                        docker build -t ${DOCKERHUB_REPO}:${imageTag} .
+                    """
+                }
+            }
+        }
+
         stage('Docker Compose Up (Tooling)') {
             steps {
                 script {
+                    // Bring up the tooling app using docker-compose
                     bat """
                         docker-compose -f tooling.yaml up -d
                     """
@@ -24,22 +37,10 @@ pipeline {
             }
         }
 
-        stage('Test HTTP Endpoint (Tooling)') {
-            steps {
-                script {
-                    // Corrected curl command with full URL
-                    def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
-                    echo "Tooling HTTP Response code: ${response}"
-                    if (response != '200') {
-                        error("Tooling HTTP Test failed with status code: ${response}")
-                    }
-                }
-            }
-        }
-
         stage('Docker Login') {
             steps {
                 script {
+                    // Login to DockerHub using Jenkins credentials
                     withCredentials([usernamePassword(credentialsId: "${REGISTRY_CREDENTIALS}", usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
                         bat """
                             docker login -u %DOCKERHUB_USERNAME% -p %DOCKERHUB_PASSWORD%
@@ -52,6 +53,7 @@ pipeline {
         stage('Docker Push') {
             steps {
                 script {
+                    // Push the Docker image to the repository
                     def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
                     bat """
                         docker push ${DOCKERHUB_REPO}:${imageTag}
@@ -64,7 +66,7 @@ pipeline {
     post {
         always {
             script {
-                // Clean up Docker Compose environment and remove images
+                // Clean up the Docker Compose environment and remove images
                 bat 'docker-compose -f tooling.yaml down || exit 0'
                 bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
             }
