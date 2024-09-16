@@ -20,26 +20,47 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        stage('Docker Compose Up (PHP-todo)') {
             steps {
                 script {
-                    def imageTag = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
-
+                    // Bring up the PHP-todo environment
                     bat """
-                        docker build -t abayaki/php-todo-app:${imageTag} .
+                        docker-compose -f docker-compose.yml up -d
                     """
                 }
             }
         }
 
-        stage('Test HTTP Endpoint') {
+        stage('Docker Compose Up (Tooling)') {
             steps {
                 script {
-                    // Correcting the curl command to include proper URL
+                    // Bring up the tooling environment
+                    bat """
+                        docker-compose -f tooling.yaml up -d
+                    """
+                }
+            }
+        }
+
+        stage('Test HTTP Endpoint (PHP-todo)') {
+            steps {
+                script {
                     def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:8081', returnStdout: true).trim()
-                    echo "Response code: ${response}"
+                    echo "PHP-todo Response code: ${response}"
                     if (response != '200') {
-                        error("HTTP Test failed with status code: ${response}")
+                        error("PHP-todo HTTP Test failed with status code: ${response}")
+                    }
+                }
+            }
+        }
+
+        stage('Test HTTP Endpoint (Tooling)') {
+            steps {
+                script {
+                    def response = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
+                    echo "Tooling Response code: ${response}"
+                    if (response != '200') {
+                        error("Tooling HTTP Test failed with status code: ${response}")
                     }
                 }
             }
@@ -71,7 +92,14 @@ pipeline {
 
     post {
         always {
-            bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
+            script {
+                // Stop and remove the Docker Compose environments for cleanup
+                bat 'docker-compose -f docker-compose.yml down || exit 0'
+                bat 'docker-compose -f tooling.yaml down || exit 0'
+
+                // Remove any created images
+                bat 'docker rmi %DOCKERHUB_REPO%:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
+            }
         }
     }
 }
