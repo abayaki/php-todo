@@ -27,7 +27,6 @@ pipeline {
         stage('Test HTTP Endpoint') {
             steps {
                 script {
-                    // HTTP Test
                     def responseHttp = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
                     echo "HTTP Response code: ${responseHttp}"
                     if (responseHttp != '200') {
@@ -40,7 +39,6 @@ pipeline {
         stage('Test HTTPS Endpoint') {
             steps {
                 script {
-                    // HTTPS Test
                     def responseHttps = bat(script: 'curl -o /dev/null -s -w "%{http_code}" https://localhost:5000 --insecure', returnStdout: true).trim()
                     echo "HTTPS Response code: ${responseHttps}"
                     if (responseHttps != '200') {
@@ -77,9 +75,8 @@ pipeline {
     post {
         always {
             script {
-                // Clean up Docker Compose environment and remove images
                 bat 'docker-compose -f tooling.yaml down || exit 0'
-                bat 'docker rmi ${DOCKERHUB_REPO}:%BRANCH_NAME%-%BUILD_NUMBER% || exit 0'
+                bat "docker rmi ${DOCKERHUB_REPO}:${BRANCH_NAME}-${BUILD_NUMBER} || exit 0"
             }
         }
     }
