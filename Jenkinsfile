@@ -27,6 +27,7 @@ pipeline {
         stage('Test HTTP Endpoint') {
             steps {
                 script {
+                    // Correct curl command
                     def responseHttp = bat(script: 'curl -o /dev/null -s -w "%{http_code}" http://localhost:5000', returnStdout: true).trim()
                     echo "HTTP Response code: ${responseHttp}"
                     if (responseHttp != '200') {
@@ -75,8 +76,9 @@ pipeline {
     post {
         always {
             script {
+                // Clean up Docker Compose environment and remove images
                 bat 'docker-compose -f tooling.yaml down || exit 0'
-                bat "docker rmi ${DOCKERHUB_REPO}:${BRANCH_NAME}-${BUILD_NUMBER} || exit 0"
+                bat 'docker rmi ${DOCKERHUB_REPO}:${BRANCH_NAME}-${BUILD_NUMBER} || exit 0'
             }
         }
     }
